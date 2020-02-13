@@ -61,6 +61,7 @@ static uint32_t dfu_status_choices[4] =
 { 
 	0x00000000, 0x00000002, /* normal */
 	0x00000000, 0x00000005, /* dl */
+//	0x00000000, 0x00000008, /* manifest wait-reset */
 };
 
 static udc_mem_t udc_mem[USB_EPT_NUM];
@@ -90,9 +91,10 @@ static void udc_control_send_zlp(void)
 }
 
 //-----------------------------------------------------------------------------
-static void USB_Service(void)
+static uint8_t USB_Service(void)
 {
 	static uint32_t dfu_addr;
+	static bool success = false;
 
 	if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
 	{
@@ -153,7 +155,7 @@ static void USB_Service(void)
 		if (USB_CMD(OUT, INTERFACE, STANDARD) == request->bmRequestType)
 		{
 			udc_control_send_zlp();
-			return;
+			return 0;
 		}
 
 		/* for these "simple" USB requests, we can ignore the direction and use only bRequest */
@@ -202,6 +204,8 @@ static void USB_Service(void)
 				{
 					case 0x03: // DFU_GETSTATUS
 						udc_control_send(&dfu_status[0], 6);
+						if (success)
+							return 1;
 						break;
 					case 0x05: // DFU_GETSTATE
 						udc_control_send(&dfu_status[1], 1);
@@ -213,6 +217,10 @@ static void USB_Service(void)
 							dfu_status = dfu_status_choices + 2;
 							dfu_addr = 0x400 + request->wValue * 64;
 						}
+						else {
+							//dfu_status = dfu_status_choices + 4;
+							success = 0x01;
+						}
 						/* fall through */
 					default: // DFU_UPLOAD & others
 						/* 0x00 == DFU_DETACH, 0x04 == DFU_CLRSTATUS, 0x06 == DFU_ABORT, and 0x01 == DFU_DNLOAD and 0x02 == DFU_UPLOAD */
@@ -223,6 +231,7 @@ static void USB_Service(void)
 				break;
 		}
 	}
+	return 0;
 }
 
 #ifdef USE_DBL_TAP
@@ -239,18 +248,18 @@ void bootloader(void)
 	PORT->Group[0].OUTSET.reg = (1UL << 15);
 #endif
 
-	PAC1->WPCLR.reg = 2; /* clear DSU */
+	//PAC1->WPCLR.reg = 2; /* clear DSU */
 
-	DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
-	DSU->LENGTH.reg = *(volatile uint32_t *)0x410; /* use length encoded into unused vector address in user app */
+	//DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
+	//DSU->LENGTH.reg = *(volatile uint32_t *)0x410; /* use length encoded into unused vector address in user app */
 
 	/* ask DSU to compute CRC */
-	DSU->DATA.reg = 0xFFFFFFFF;
-	DSU->CTRL.bit.CRC = 1;
-	while (!DSU->STATUSA.bit.DONE);
+	//DSU->DATA.reg = 0xFFFFFFFF;
+	//DSU->CTRL.bit.CRC = 1;
+	//while (!DSU->STATUSA.bit.DONE);
 
-	if (DSU->DATA.reg)
-		goto run_bootloader; /* CRC failed, so run bootloader */
+	//if (DSU->DATA.reg)
+		//goto run_bootloader; /* CRC failed, so run bootloader */
 
 #ifndef USE_DBL_TAP
 	if (!(PORT->Group[0].IN.reg & (1UL << 15)))
@@ -258,6 +267,8 @@ void bootloader(void)
 
 	return; /* we've checked everything and there is no reason to run the bootloader */
 #else
+	if (PM->RCAUSE.reg & PM_RCAUSE_SYST)
+		goto run_bootloader;
 	if (PM->RCAUSE.reg & PM_RCAUSE_POR)
 		*DBL_TAP_PTR = 0; /* a power up event should never be considered a 'double tap' */
 
@@ -367,6 +378,6 @@ run_bootloader:
 	   service USB
 	   */
 
-	while (1)
-		USB_Service();
+	while (!USB_Service());
+	return;
 }
