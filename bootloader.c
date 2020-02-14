@@ -61,12 +61,12 @@ static uint32_t dfu_status_choices[4] =
 { 
 	0x00000000, 0x00000002, /* normal */
 	0x00000000, 0x00000005, /* dl */
-//	0x00000000, 0x00000008, /* manifest wait-reset */
 };
 
 static udc_mem_t udc_mem[USB_EPT_NUM];
 static uint32_t udc_ctrl_in_buf[16];
 static uint32_t udc_ctrl_out_buf[16];
+static bool success = false;
 
 /*- Implementations ---------------------------------------------------------*/
 
@@ -94,7 +94,6 @@ static void udc_control_send_zlp(void)
 static uint8_t USB_Service(void)
 {
 	static uint32_t dfu_addr;
-	static bool success = false;
 
 	if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
 	{
@@ -204,7 +203,7 @@ static uint8_t USB_Service(void)
 				{
 					case 0x03: // DFU_GETSTATUS
 						udc_control_send(&dfu_status[0], 6);
-						if (success)
+						if (success) // Download completed
 							return 1;
 						break;
 					case 0x05: // DFU_GETSTATE
@@ -215,10 +214,9 @@ static uint8_t USB_Service(void)
 						if (request->wLength)
 						{
 							dfu_status = dfu_status_choices + 2;
-							dfu_addr = 0x400 + request->wValue * 64;
+							dfu_addr = 0x800 + request->wValue * 64;
 						}
-						else {
-							//dfu_status = dfu_status_choices + 4;
+						else { // Download completed
 							success = 0x01;
 						}
 						/* fall through */
@@ -248,18 +246,18 @@ void bootloader(void)
 	PORT->Group[0].OUTSET.reg = (1UL << 15);
 #endif
 
-	//PAC1->WPCLR.reg = 2; /* clear DSU */
+	PAC1->WPCLR.reg = 2; /* clear DSU */
 
-	//DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
-	//DSU->LENGTH.reg = *(volatile uint32_t *)0x410; /* use length encoded into unused vector address in user app */
+	DSU->ADDR.reg = 0x800; /* start CRC check at beginning of user app */
+	DSU->LENGTH.reg = *(volatile uint32_t *)0x810; /* use length encoded into unused vector address in user app */
 
 	/* ask DSU to compute CRC */
-	//DSU->DATA.reg = 0xFFFFFFFF;
-	//DSU->CTRL.bit.CRC = 1;
-	//while (!DSU->STATUSA.bit.DONE);
+	DSU->DATA.reg = 0xFFFFFFFF;
+	DSU->CTRL.bit.CRC = 1;
+	while (!DSU->STATUSA.bit.DONE);
 
-	//if (DSU->DATA.reg)
-		//goto run_bootloader; /* CRC failed, so run bootloader */
+	if (DSU->DATA.reg)
+		goto run_bootloader; /* CRC failed, so run bootloader */
 
 #ifndef USE_DBL_TAP
 	if (!(PORT->Group[0].IN.reg & (1UL << 15)))
@@ -267,8 +265,9 @@ void bootloader(void)
 
 	return; /* we've checked everything and there is no reason to run the bootloader */
 #else
-	if (PM->RCAUSE.reg & PM_RCAUSE_SYST)
+	if (PM->RCAUSE.reg & PM_RCAUSE_SYST) /* Run bootloader if user app performs system reset */
 		goto run_bootloader;
+
 	if (PM->RCAUSE.reg & PM_RCAUSE_POR)
 		*DBL_TAP_PTR = 0; /* a power up event should never be considered a 'double tap' */
 
@@ -379,5 +378,11 @@ run_bootloader:
 	   */
 
 	while (!USB_Service());
+	if (success) { /* User app downloaded, enable watchdog to reboot and perform crc check */
+		GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(5) | GCLK_GENCTRL_SRC(GCLK_SOURCE_OSCULP32K) | GCLK_GENCTRL_RUNSTDBY | GCLK_GENCTRL_GENEN;
+		while (GCLK->STATUS.bit.SYNCBUSY);
+		WDT->CTRL.reg = WDT_CTRL_ENABLE;
+		while(1);
+	}
 	return;
 }
