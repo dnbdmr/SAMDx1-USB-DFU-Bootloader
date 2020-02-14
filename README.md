@@ -1,6 +1,11 @@
 USB DFU Bootloader for SAMD11 / SAMD21
 ======================================
 
+Changes from majbthrd's version:
+- Increase size to 2k to  compile with GCC
+- Stay in bootloader after user app does a software reset
+- Automatically reset after successful download
+
 Bootloaders may be a dime a dozen, but existing USB bootloaders for the Atmel/Microchip SAMD11/SAMD21 all seem to be 4kBytes or 8kBytes in size.  To spend 25% or 50% of the SAMD11's flash on the bootloader seems quite excessive.  The SAMD21 may have more flash to spare than the SAMD11, but why be so wasteful with it?
 
 This USB bootloader is only 1kBytes and implements the industry-standard [DFU protocol](http://www.usb.org/developers/docs/devclass_docs/DFU_1.1.pdf) that is supported under multiple Operating Systems via existing tools such as [dfu-util](http://dfu-util.sourceforge.net/) and [webdfu](https://github.com/devanlai/webdfu).
