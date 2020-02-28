@@ -237,6 +237,14 @@ static volatile uint32_t *DBL_TAP_PTR = (volatile uint32_t *)(&__RAM_segment_use
 
 void bootloader(void)
 {
+	PORT->Group[0].DIRSET.reg = (1UL << 5) | (1UL << 8) | (1UL << 9) | (1UL << 14);
+	PORT->Group[0].OUTCLR.reg = (1UL << 5) | (1UL << 8) | (1UL << 9) | (1UL << 14);
+
+	if (PM->RCAUSE.reg & PM_RCAUSE_SYST) { /* Run bootloader if user app performs system reset */
+		PORT->Group[0].OUTSET.reg = (1UL << 5); // 1
+		goto run_bootloader;
+	}
+
 	PAC1->WPCLR.reg = 2; /* clear DSU */
 
 	DSU->ADDR.reg = 0x800; /* start CRC check at beginning of user app */
@@ -247,28 +255,57 @@ void bootloader(void)
 	DSU->CTRL.bit.CRC = 1;
 	while (!DSU->STATUSA.bit.DONE);
 
-	if (DSU->DATA.reg)
+	if (DSU->DATA.reg) {
 		goto run_bootloader; /* CRC failed, so run bootloader */
-
-	if (PM->RCAUSE.reg & PM_RCAUSE_SYST) /* Run bootloader if user app performs system reset */
-		goto run_bootloader;
-
-	if (PM->RCAUSE.reg & PM_RCAUSE_POR)
-		*DBL_TAP_PTR = 0; /* a power up event should never be considered a 'double tap' */
-
-	if (*DBL_TAP_PTR == DBL_TAP_MAGIC)
-	{
-		/* a 'double tap' has happened, so run bootloader */
-		*DBL_TAP_PTR = 0;
-		goto run_bootloader;
+		PORT->Group[0].OUTSET.reg = (1UL << 14); // 8
 	}
 
-	/* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
-	*DBL_TAP_PTR = DBL_TAP_MAGIC;
-	volatile int wait = 65536; while (wait--);
-	/* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
-	*DBL_TAP_PTR = 0;
-	return;
+	if (PM->RCAUSE.reg & PM_RCAUSE_POR) { /* Power up, CRC passed so run user app */
+		*DBL_TAP_PTR = 0; /* a power up event should never be considered a 'double tap' */
+		PORT->Group[0].OUTSET.reg = (1UL << 8); // 2
+		return;
+	}
+	else if (PM->RCAUSE.reg & PM_RCAUSE_WDT) { /* Successful upload and CRC run user app */
+		PORT->Group[0].OUTSET.reg = (1UL << 5); // 3
+		PORT->Group[0].OUTSET.reg = (1UL << 8);
+		return;
+	}
+	else if (PM->RCAUSE.reg & PM_RCAUSE_BOD12) {
+		// light led
+		PORT->Group[0].OUTSET.reg = (1UL << 9); // 4
+	}
+	else if (PM->RCAUSE.reg & PM_RCAUSE_BOD33) {
+		// light other led
+		PORT->Group[0].OUTSET.reg = (1UL << 5); // 5
+		PORT->Group[0].OUTSET.reg = (1UL << 9);
+		goto run_bootloader;
+	}
+	else if (PM->RCAUSE.reg & PM_RCAUSE_EXT) { /* Only deal with double tap on external reset */
+		// light other led
+		PORT->Group[0].OUTSET.reg = (1UL << 8); // 6
+		PORT->Group[0].OUTSET.reg = (1UL << 9);
+
+		if (*DBL_TAP_PTR == DBL_TAP_MAGIC)
+		{
+			/* a 'double tap' has happened, so run bootloader */
+			*DBL_TAP_PTR = 0;
+			goto run_bootloader;
+		}
+
+		/* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
+		*DBL_TAP_PTR = DBL_TAP_MAGIC;
+		volatile int wait = 65536; while (wait--);
+		/* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
+		*DBL_TAP_PTR = 0;
+		return;
+	}
+	else {
+		// light other led
+		PORT->Group[0].OUTSET.reg = (1UL << 5); // 7
+		PORT->Group[0].OUTSET.reg = (1UL << 8);
+		PORT->Group[0].OUTSET.reg = (1UL << 9);
+	}
+
 
 run_bootloader:
 	/*
