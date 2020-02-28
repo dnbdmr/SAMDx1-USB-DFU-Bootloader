@@ -44,7 +44,6 @@ NOTES:
 #include "usb_descriptors.h"
 
 /*- Definitions -------------------------------------------------------------*/
-#define USE_DBL_TAP /* comment out to use GPIO input for bootloader entry */
 #define USB_CMD(dir, rcpt, type) ((USB_##dir##_TRANSFER << 7) | (USB_##type##_REQUEST << 5) | (USB_##rcpt##_RECIPIENT << 0))
 #define SIMPLE_USB_CMD(rcpt, type) ((USB_##type##_REQUEST << 5) | (USB_##rcpt##_RECIPIENT << 0))
 
@@ -232,20 +231,12 @@ static uint8_t USB_Service(void)
 	return 0;
 }
 
-#ifdef USE_DBL_TAP
 extern int __RAM_segment_used_end__;
 static volatile uint32_t *DBL_TAP_PTR = (volatile uint32_t *)(&__RAM_segment_used_end__);
 #define DBL_TAP_MAGIC 0xf02669ef
-#endif
 
 void bootloader(void)
 {
-#ifndef USE_DBL_TAP
-	/* configure PA15 (bootloader entry pin used by SAM-BA) as input pull-up */
-	PORT->Group[0].PINCFG[15].reg = PORT_PINCFG_PULLEN | PORT_PINCFG_INEN;
-	PORT->Group[0].OUTSET.reg = (1UL << 15);
-#endif
-
 	PAC1->WPCLR.reg = 2; /* clear DSU */
 
 	DSU->ADDR.reg = 0x800; /* start CRC check at beginning of user app */
@@ -259,12 +250,6 @@ void bootloader(void)
 	if (DSU->DATA.reg)
 		goto run_bootloader; /* CRC failed, so run bootloader */
 
-#ifndef USE_DBL_TAP
-	if (!(PORT->Group[0].IN.reg & (1UL << 15)))
-		goto run_bootloader; /* pin grounded, so run bootloader */
-
-	return; /* we've checked everything and there is no reason to run the bootloader */
-#else
 	if (PM->RCAUSE.reg & PM_RCAUSE_SYST) /* Run bootloader if user app performs system reset */
 		goto run_bootloader;
 
@@ -284,7 +269,6 @@ void bootloader(void)
 	/* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
 	*DBL_TAP_PTR = 0;
 	return;
-#endif
 
 run_bootloader:
 #if 1
