@@ -237,11 +237,7 @@ static volatile uint32_t *DBL_TAP_PTR = (volatile uint32_t *)(&__RAM_segment_use
 
 void bootloader(void)
 {
-	PORT->Group[0].DIRSET.reg = (1UL << 5) | (1UL << 8) | (1UL << 9) | (1UL << 14);
-	PORT->Group[0].OUTCLR.reg = (1UL << 5) | (1UL << 8) | (1UL << 9) | (1UL << 14);
-
 	if (PM->RCAUSE.reg & PM_RCAUSE_SYST) { /* Run bootloader if user app performs system reset */
-		PORT->Group[0].OUTSET.reg = (1UL << 5); // 1
 		goto run_bootloader;
 	}
 
@@ -257,34 +253,9 @@ void bootloader(void)
 
 	if (DSU->DATA.reg) {
 		goto run_bootloader; /* CRC failed, so run bootloader */
-		PORT->Group[0].OUTSET.reg = (1UL << 14); // 8
 	}
 
-	if (PM->RCAUSE.reg & PM_RCAUSE_POR) { /* Power up, CRC passed so run user app */
-		*DBL_TAP_PTR = 0; /* a power up event should never be considered a 'double tap' */
-		PORT->Group[0].OUTSET.reg = (1UL << 8); // 2
-		return;
-	}
-	else if (PM->RCAUSE.reg & PM_RCAUSE_WDT) { /* Successful upload and CRC run user app */
-		PORT->Group[0].OUTSET.reg = (1UL << 5); // 3
-		PORT->Group[0].OUTSET.reg = (1UL << 8);
-		return;
-	}
-	else if (PM->RCAUSE.reg & PM_RCAUSE_BOD12) {
-		// light led
-		PORT->Group[0].OUTSET.reg = (1UL << 9); // 4
-	}
-	else if (PM->RCAUSE.reg & PM_RCAUSE_BOD33) {
-		// light other led
-		PORT->Group[0].OUTSET.reg = (1UL << 5); // 5
-		PORT->Group[0].OUTSET.reg = (1UL << 9);
-		goto run_bootloader;
-	}
-	else if (PM->RCAUSE.reg & PM_RCAUSE_EXT) { /* Only deal with double tap on external reset */
-		// light other led
-		PORT->Group[0].OUTSET.reg = (1UL << 8); // 6
-		PORT->Group[0].OUTSET.reg = (1UL << 9);
-
+	if (PM->RCAUSE.reg & PM_RCAUSE_EXT) { /* Only deal with double tap on external reset */
 		if (*DBL_TAP_PTR == DBL_TAP_MAGIC)
 		{
 			/* a 'double tap' has happened, so run bootloader */
@@ -299,11 +270,8 @@ void bootloader(void)
 		*DBL_TAP_PTR = 0;
 		return;
 	}
-	else {
-		// light other led
-		PORT->Group[0].OUTSET.reg = (1UL << 5); // 7
-		PORT->Group[0].OUTSET.reg = (1UL << 8);
-		PORT->Group[0].OUTSET.reg = (1UL << 9);
+	else { /* All other reset sources, run user app */
+		return;
 	}
 
 
