@@ -37,7 +37,7 @@
 #define USB_VENDOR_ID  0x1209
 #define USB_PRODUCT_ID 0x2003
 
-static const uint32_t origin_addr = 0x800; /* origin of the application (first address available after the bootloader) */
+static const uint32_t origin_addr = 0x400; /* origin of the application (first address available after the bootloader) */
 static const uint32_t app_len_offset = 0x10; /* reserved application vector where the application size is stored */
 static const uint32_t app_crc_offset = 0x14; /* reserved application vector where the CRC value is stored */
 

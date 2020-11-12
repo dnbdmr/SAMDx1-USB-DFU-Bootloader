@@ -214,7 +214,7 @@ static bool USB_Service(void)
 						if (request->wLength)
 						{
 							dfu_status = dfu_status_choices + 2;
-							dfu_addr = 0x800 + request->wValue * 64;
+							dfu_addr = 0x400 + request->wValue * 64;
 						}
 						else { // Download completed
 							success = true;
@@ -244,8 +244,8 @@ void bootloader(void)
 
 	PAC1->WPCLR.reg = 2; /* clear DSU */
 
-	DSU->ADDR.reg = 0x800; /* start CRC check at beginning of user app */
-	DSU->LENGTH.reg = *(volatile uint32_t *)0x810; /* use length encoded into unused vector address in user app */
+	DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
+	DSU->LENGTH.reg = *(volatile uint32_t *)0x410; /* use length encoded into unused vector address in user app */
 
 	/* ask DSU to compute CRC */
 	DSU->DATA.reg = 0xFFFFFFFF;
