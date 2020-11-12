@@ -65,7 +65,6 @@ static uint32_t dfu_status_choices[4] =
 static udc_mem_t udc_mem[USB_EPT_NUM];
 static uint32_t udc_ctrl_in_buf[16];
 static uint32_t udc_ctrl_out_buf[16];
-static bool success = false;
 
 /*- Implementations ---------------------------------------------------------*/
 
@@ -90,17 +89,19 @@ static void udc_control_send_zlp(void)
 }
 
 //-----------------------------------------------------------------------------
-static uint8_t USB_Service(void)
+static bool USB_Service(void)
 {
 	static uint32_t dfu_addr;
+	static bool success = false;
 
 	if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
 	{
 		USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_EORST;
 		USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN;
 
-		for (int ep = 0; ep < USB_EPT_NUM; ep++)
-			USB->DEVICE.DeviceEndpoint[ep].EPCFG.reg = 0;
+		//for (int ep = 0; ep < USB_EPT_NUM; ep++)
+		//	USB->DEVICE.DeviceEndpoint[ep].EPCFG.reg = 0;
+		/* Per datasheet, all EPCFG cleared except endpoint 0 */
 
 		USB->DEVICE.DeviceEndpoint[0].EPCFG.reg = USB_DEVICE_EPCFG_EPTYPE0(1 /*CONTROL*/) | USB_DEVICE_EPCFG_EPTYPE1(1 /*CONTROL*/);
 		USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.BK0RDY = 1;
@@ -216,7 +217,7 @@ static uint8_t USB_Service(void)
 							dfu_addr = 0x800 + request->wValue * 64;
 						}
 						else { // Download completed
-							success = 0x01;
+							success = true;
 						}
 						/* fall through */
 					default: // DFU_UPLOAD & others
@@ -280,7 +281,8 @@ run_bootloader:
 	   configure oscillator for crystal-free USB operation (USBCRM / USB Clock Recovery Mode)
 	   */
 
-	SYSCTRL->OSC8M.bit.PRESC = 0;
+	//SYSCTRL->OSC8M.bit.PRESC = 0;
+	// leave for user app
 
 	SYSCTRL->INTFLAG.reg = SYSCTRL_INTFLAG_BOD33RDY | SYSCTRL_INTFLAG_BOD33DET | SYSCTRL_INTFLAG_DFLLRDY;
 
@@ -318,20 +320,17 @@ run_bootloader:
 
 	USB->DEVICE.DESCADD.reg = (uint32_t)udc_mem;
 
-	USB->DEVICE.CTRLA.reg = USB_CTRLA_MODE_DEVICE | USB_CTRLA_RUNSTDBY;
 	USB->DEVICE.CTRLB.reg = USB_DEVICE_CTRLB_SPDCONF_FS;
-	USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
+	USB->DEVICE.CTRLA.reg = USB_CTRLA_MODE_DEVICE | USB_CTRLA_RUNSTDBY | USB_CTRLA_ENABLE;
+	//USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
 
 	/*
 	   service USB
 	   */
 
 	while (!USB_Service());
-	if (success) { /* User app downloaded, enable watchdog to reboot and perform crc check */
-		GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(5) | GCLK_GENCTRL_SRC(GCLK_SOURCE_OSCULP32K) | GCLK_GENCTRL_RUNSTDBY | GCLK_GENCTRL_GENEN;
-		while (GCLK->STATUS.bit.SYNCBUSY);
-		WDT->CTRL.reg = WDT_CTRL_ENABLE;
-		while(1);
-	}
+	WDT->CTRL.reg = WDT_CTRL_ENABLE;
+	while(1);
+	//}
 	return;
 }
